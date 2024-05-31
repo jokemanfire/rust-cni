@@ -1,4 +1,4 @@
-use std::{io, fs::File};
+use std::{fs::File, io};
 
 use cni::cni::Libcni;
 
@@ -6,18 +6,16 @@ use netns_rs::NetNs;
 
 use nix::sched::setns;
 
-fn create_ns() -> Result<NetNs,String>{
+fn create_ns() -> Result<NetNs, String> {
     let pid = std::process::id();
     let ns = NetNs::new("ns_name").unwrap();
-    let fd_name =  format!("/proc/{}/ns/net",pid);
+    let fd_name = format!("/proc/{}/ns/net", pid);
     let fd = File::open(fd_name).unwrap();
     let path_ns = ns.path();
     let _ = setns(fd, nix::sched::CloneFlags::CLONE_NEWNET);
-    println!("{:?}",path_ns.to_string_lossy().to_string());
+    println!("{:?}", path_ns.to_string_lossy().to_string());
     Ok(ns)
 }
-
-
 
 fn main() {
     let ns = create_ns().unwrap();

@@ -8,7 +8,6 @@ pub mod test {
 
     use crate::cni;
 
-
     #[test]
     fn test_cni_add_remove() {
         // run_as_root();

@@ -1,13 +1,15 @@
 # This is the CNI plugin impl by rust for containerd create CNI network
 
 ## copy ref
-* Containerd cni plugins
-* cni-rs
+* Containerd cni plugins （https://github.com/containerd）
+* cni-rs (https://github.com/divinerapier/cni-rs)
 
 
 ## todo
 * Need Cached in CNI
 * Need Tests
+* Need Validate in CNI
+* Wrap as lib
 
 ## example
 

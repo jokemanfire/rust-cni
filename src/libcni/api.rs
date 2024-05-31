@@ -35,11 +35,19 @@ pub trait CNI {
         rt: RuntimeConf,
     ) -> ResultCNI<Box<dyn APIResult>>;
 
-    fn check_network(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()>;
+    fn check_network(
+        &self,
+        name: String,
+        cni_version: String,
+        prev_result: Option<Box<dyn APIResult>>,
+        net: NetworkConfig,
+        rt: RuntimeConf,
+    ) -> ResultCNI<()>;
     fn delete_network(
         &self,
         name: String,
         cni_version: String,
+
         net: NetworkConfig,
         rt: RuntimeConf,
     ) -> ResultCNI<()>;
@@ -141,7 +149,7 @@ impl CNI for CNIConfig {
                 rt.clone(),
             )?;
             r = Some(r1);
-            //add r to cache
+            //add r to cached
             // self.cacheAdd();
         }
         match r {
@@ -150,8 +158,10 @@ impl CNI for CNIConfig {
         }
     }
 
-    fn check_network_list(&self, net: NetworkConfigList, _rt: RuntimeConf) -> ResultCNI<()> {
-        net.plugins.into_iter().for_each(|_x| {});
+    fn check_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {  
+        net.plugins.into_iter().try_for_each(|x| {
+            self.check_network(net.name.clone(), net.cni_version.clone(), None, x, rt.clone())
+        })?;
         Ok(())
     }
 
@@ -211,8 +221,33 @@ impl CNI for CNIConfig {
         Err(Box::new(CNIError::ExecuteError("()".to_string())))
     }
 
-    fn check_network(&self, _net: NetworkConfigList, _rt: RuntimeConf) -> ResultCNI<()> {
-        todo!()
+    fn check_network(
+        &self,
+        name: String,
+        cni_version: String,
+        prev_result: Option<Box<dyn APIResult>>,
+        net: NetworkConfig,
+        rt: RuntimeConf,
+    ) -> ResultCNI<()> {
+        let plugin_path = self
+            .exec
+            .find_in_path(net.network._type.clone(), self.path.clone())
+            .unwrap();
+        let environ = ExecArgs {
+            command: "CHECK".to_string(),
+            containerd_id: rt.container_id.clone(),
+            netns: rt.net_ns.clone(),
+            plugin_args: rt.args.clone(),
+            plugin_args_str: String::default(),
+            ifname: rt.if_name.clone(),
+            path: self.path[0].clone(),
+        };
+        let new_conf = self.build_new_config(name, cni_version, &net, prev_result, &rt);
+        if let Ok(new_conf) = new_conf{
+            self.exec
+            .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
+        }
+        Ok(())
     }
     fn delete_network(
         &self,
