@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
-/* Started by AICoder, pid:3f64b657d3k8d1a1407d0b393078c9075391fe43 */
 
 use super::CNIError;
-/* Ended by AICoder, pid:3f64b657d3k8d1a1407d0b393078c9075391fe43 */
+
 use super::exec::RawExec;
 use crate::libcni::exec::{Exec, ExecArgs};
 use crate::libcni::result::result100;
@@ -158,9 +157,15 @@ impl CNI for CNIConfig {
         }
     }
 
-    fn check_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {  
+    fn check_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {
         net.plugins.into_iter().try_for_each(|x| {
-            self.check_network(net.name.clone(), net.cni_version.clone(), None, x, rt.clone())
+            self.check_network(
+                net.name.clone(),
+                net.cni_version.clone(),
+                None,
+                x,
+                rt.clone(),
+            )
         })?;
         Ok(())
     }
@@ -243,9 +248,9 @@ impl CNI for CNIConfig {
             path: self.path[0].clone(),
         };
         let new_conf = self.build_new_config(name, cni_version, &net, prev_result, &rt);
-        if let Ok(new_conf) = new_conf{
+        if let Ok(new_conf) = new_conf {
             self.exec
-            .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
+                .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
         }
         Ok(())
     }

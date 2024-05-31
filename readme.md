@@ -1,4 +1,4 @@
-# This is the CNI plugin impl by rust for containerd create CNI network
+# This is the CNI plugin impl by rust for container create CNI network
 
 ## copy ref
 * Containerd cni plugins （https://github.com/containerd）
