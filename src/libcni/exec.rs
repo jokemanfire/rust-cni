@@ -1,3 +1,4 @@
+// Copyright (c) 2024 https://github.com/divinerapier/cni-rs
 use serde::{Deserialize, Serialize};
 
 use crate::libcni::result::ResultCNI;

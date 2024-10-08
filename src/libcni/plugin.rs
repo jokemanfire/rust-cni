@@ -1,3 +1,4 @@
+// Copyright (c) 2024 https://github.com/divinerapier/cni-rs
 pub trait PluginInfo {
     fn supported_versions(&self) -> Vec<String>;
     fn encode<W: std::io::Write>(&self, w: W) -> super::ResultCNI<()>;
