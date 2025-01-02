@@ -1,9 +1,6 @@
 use std::{fs::File, io};
-
-use cni::cni::Libcni;
-
+use rust_cni::cni::Libcni;
 use netns_rs::NetNs;
-
 use nix::sched::setns;
 
 fn create_ns() -> Result<NetNs, String> {

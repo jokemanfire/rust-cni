@@ -1,0 +1,9 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+netns-rs = "0.1.0"
+rust-cni = {path = "../"}
+nix= {version = "0.28.0" , features = ["user","sched"]}

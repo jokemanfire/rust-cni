@@ -4,8 +4,6 @@ pub mod namespace;
 #[cfg(test)]
 pub mod test {
 
-    use nix::unistd::{setuid, Uid};
-
     use crate::cni;
 
     #[test]
