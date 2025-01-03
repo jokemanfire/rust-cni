@@ -12,7 +12,7 @@ use crate::{
 
 pub struct Libcni {
     config: Config,
-    cni_interface: Arc<dyn CNI>,
+    cni_interface: Arc<Box<dyn CNI + Send +Sync>>,
     network_count: i64,
     networks: Vec<Network>,
 }
@@ -56,11 +56,11 @@ impl Libcni {
                 plugin_max_conf_num: 1,
                 prefix: "vethcni".to_string(),
             },
-            cni_interface: Arc::new(CNIConfig {
+            cni_interface: Arc::new(Box::new(CNIConfig {
                 path: vec!["/opt/cni/bin".to_string()],
                 exec: RawExec::default(),
                 cache_dir: String::default(),
-            }),
+            })),
             network_count: 1,
             networks: Vec::default(),
         }

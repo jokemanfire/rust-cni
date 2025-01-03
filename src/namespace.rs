@@ -5,7 +5,7 @@ use crate::libcni::{
     api::{RuntimeConf, CNI},
 };
 pub struct Network {
-    pub cni: Arc<dyn CNI>,
+    pub cni: Arc<Box<dyn CNI + Send + Sync>>,
     pub config: libcni::api::NetworkConfigList,
     pub ifname: String,
 }

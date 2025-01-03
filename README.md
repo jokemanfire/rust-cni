@@ -1,8 +1,5 @@
 # This is the CNI plugin impl by rust for container create CNI network
 
-## copy ref
-* Containerd cni plugins （https://github.com/containerd）
-* cni-rs (https://github.com/divinerapier/cni-rs)
 
 
 ## todo
@@ -14,18 +11,16 @@
 ## example
 
 ```Rust
-fn create_ns() -> Result<NetNs,String>{
-    let pid = std::process::id();
+use std::{fs::File, io};
+use rust_cni::cni::Libcni;
+use netns_rs::NetNs;
+use nix::sched::setns;
+
+fn create_ns() -> Result<NetNs, String> {
     let ns = NetNs::new("ns_name").unwrap();
-    let fd_name =  format!("/proc/{}/ns/net",pid);
-    let fd = File::open(fd_name).unwrap();
-    let path_ns = ns.path();
-    let _ = setns(fd, nix::sched::CloneFlags::CLONE_NEWNET);
-    println!("{:?}",path_ns.to_string_lossy().to_string());
+    println!("{:?}", ns.path());
     Ok(ns)
 }
-
-
 
 fn main() {
     let ns = create_ns().unwrap();
@@ -45,4 +40,10 @@ fn main() {
     let _ = ns.remove();
 }
 
+
 ```
+
+
+##ref
+* Containerd cni plugins （https://github.com/containerd/go-cni）
+* cni-rs (https://github.com/divinerapier/cni-rs)
