@@ -7,10 +7,9 @@ This is the CNI plugin impl by rust for container-runtime create CNI network.
 * Install cni plugin in /opt/cni/bin
 * Prepare cni config in /etc/cni/net.d
 
-## Test
-```
+
 ## Run test
-should as root user
+run it as root.
 ```bash
 cargo test --test it_test --  --test-threads=1 --nocapture
 ```
@@ -31,20 +30,19 @@ fn create_ns() -> Result<NetNs, String> {
 
 fn main() {
     let ns = create_ns().unwrap();
+    // Default cni config is in /etc/cni/net.d/
+    // Default cni bin is in /opt/cni/bin/  
     let mut cni = Libcni::default();
     cni.load_default_conf();
-    let _ = cni.add_lo_network();
+    cni.add_lo_network().unwrap();
 
     let id = "test".to_string();
     let path = ns.path().to_string_lossy().to_string();
-    let _ = cni.setup(id.clone(), path.clone());
-
-    let mut name = String::new();
-    io::stdin().read_line(&mut name).expect("error");
+    cni.setup(id.clone(), path.clone()).unwrap();
 
     println!("try to remove --------------------");
-    let _ = cni.remove(id.clone(), path.clone());
-    let _ = ns.remove();
+    cni.remove(id.clone(), path.clone()).unwrap();
+    ns.remove().unwrap();
 }
 ```
 
