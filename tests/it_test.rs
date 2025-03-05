@@ -31,13 +31,54 @@ const TEST_NETWORK_CONF: &str = r#"{
     }
 }"#;
 
+const TEST_NETWORK_CONF_2: &str = r#"{
+  "cniVersion": "0.4.0",
+  "name": "containerd-net",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "cni0",
+      "isGateway": true,
+      "ipMasq": true,
+      "promiscMode": true,
+      "ipam": {
+        "type": "host-local",
+        "ranges": [
+          [{
+            "subnet": "192.168.1.0/24"
+          }],
+          [{
+            "subnet": "2001:4860:4860::/64"
+          }]
+        ],
+        "routes": [
+          { "dst": "0.0.0.0/0" },
+          { "dst": "::/0" }
+        ]
+      }
+    },
+    {
+      "type": "firewall",
+      "ingressPolicy": "same-bridge"
+    },
+    {
+      "type": "portmap",
+      "capabilities": {"portMappings": true}
+    }
+  ]
+}"#;
+
 // test helper function
-fn setup_test_environment() -> std::io::Result<String> {
+fn setup_test_environment(cnf: &str) -> std::io::Result<String> {
     let test_dir = format!("/tmp/cni-test-{}", uuid::Uuid::new_v4());
     fs::create_dir_all(&test_dir)?;
-
-    let config_path = format!("{}/10-test-network.conf", test_dir);
-    fs::write(&config_path, TEST_NETWORK_CONF)?;
+    if cnf.contains("plugins") {
+        let config_path = format!("{}/10-test-network.conflist", test_dir);
+        fs::write(&config_path, cnf)?;
+    } else {
+        let config_path = format!("{}/10-test-network.conf", test_dir);
+        fs::write(&config_path, cnf)?;
+    }
 
     info!("Created test environment at {}", test_dir);
     Ok(test_dir)
@@ -102,7 +143,7 @@ fn test_cni_initialization() {
     info!("Starting CNI initialization test");
 
     // create test environment
-    let test_dir = match setup_test_environment() {
+    let test_dir = match setup_test_environment(TEST_NETWORK_CONF) {
         Ok(dir) => dir,
         Err(e) => {
             error!("Failed to setup test environment: {}", e);
@@ -147,7 +188,7 @@ fn test_network_lifecycle() {
 
     info!("Starting network lifecycle test");
 
-    let test_dir = match setup_test_environment() {
+    let test_dir = match setup_test_environment(TEST_NETWORK_CONF) {
         Ok(dir) => dir,
         Err(e) => {
             error!("Failed to setup test environment: {}", e);
@@ -260,7 +301,7 @@ fn test_custom_network_config() {
     info!("Starting custom network config test");
 
     // create test directory
-    let test_dir = match setup_test_environment() {
+    let test_dir = match setup_test_environment(TEST_NETWORK_CONF) {
         Ok(dir) => dir,
         Err(e) => {
             error!("Failed to setup test environment: {}", e);
@@ -329,4 +370,80 @@ fn test_custom_network_config() {
     }
 
     info!("Custom network config test completed successfully");
+}
+
+// test: custom network config with multiple plugins
+#[test]
+fn test_custom_network_config_with_plugins() {
+    init_logger();
+
+    info!("Starting custom network config test with multiple plugins");
+
+    let test_dir = match setup_test_environment(TEST_NETWORK_CONF_2) {
+        Ok(dir) => dir,
+        Err(e) => {
+            error!("Failed to setup test environment: {}", e);
+            panic!("Test setup failed");
+        }
+    };
+
+    // create network namespace 
+    let ns_name = format!("cni-test-{}", uuid::Uuid::new_v4());
+    let ns_path = match create_netns(&ns_name) {
+        Ok(path) => path,
+        Err(e) => {
+            error!("Failed to create network namespace: {}", e);
+            cleanup_test_environment(&test_dir).unwrap_or_default();
+            panic!("Failed to create netns");
+        }
+    };
+
+    // create cni instance
+    let mut cni = Libcni::new(
+        Some(vec!["/opt/cni/bin".to_string()]),
+        Some(test_dir.clone()),
+        Some("/tmp/cni-cache".to_string()),
+    );
+
+    // load custom network config
+    cni.load_default_conf();
+    match cni.add_lo_network() {
+        Ok(_) => info!("Added loopback network"),
+        Err(e) => {
+            error!("Failed to add loopback network: {}", e);
+            delete_netns(&ns_name).unwrap_or_default();
+            cleanup_test_environment(&test_dir).unwrap_or_default();
+            panic!("Failed to add loopback network");
+        }
+    }
+    // create container id
+    let container_id = format!("multi-plugin-container-{}", uuid::Uuid::new_v4());
+
+    // setup network
+    match cni.setup(container_id.clone(), ns_path.clone()) {
+        Ok(_) => info!("Network setup with multiple plugins successful"),
+        Err(e) => {
+            error!("Network setup failed: {}", e);
+            delete_netns(&ns_name).unwrap_or_default();
+            cleanup_test_environment(&test_dir).unwrap_or_default();
+            panic!("Network setup failed: {}", e);
+        }
+    }
+
+    // cleanup network
+    match cni.remove(container_id, ns_path) {
+        Ok(_) => info!("Network cleanup successful"),
+        Err(e) => warn!("Network cleanup failed: {}", e),
+    }
+
+    // cleanup resources
+    if let Err(e) = delete_netns(&ns_name) {
+        warn!("Failed to delete network namespace: {}", e);
+    }
+
+    if let Err(e) = cleanup_test_environment(&test_dir) {
+        warn!("Failed to cleanup test environment: {}", e);
+    }
+
+    info!("Custom network config test with multiple plugins completed successfully");
 }

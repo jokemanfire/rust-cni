@@ -253,9 +253,11 @@ impl CNIConfig {
             return Err(format!("Failed to insert cniVersion: {}", e));
         }
 
-        // Insert previous result if provided
+        // Insert previous result (if provided)
         if let Some(prev_result) = prev_result {
-            if let Err(e) = json_object.insert("prevResult", prev_result.get_json()) {
+            let prev_json = prev_result.get_json();
+            debug!("Adding prevResult to config: {}", prev_json.dump());
+            if let Err(e) = json_object.insert("prevResult", prev_json) {
                 return Err(format!("Failed to insert prevResult: {}", e));
             }
         }
@@ -440,12 +442,12 @@ impl CNI for CNIConfig {
     ) -> ResultCNI<Box<dyn APIResult>> {
         debug!("Adding network {} with plugin {}", name, net.network._type);
 
-        // Find plugin in path
+        // Find plugin path
         let plugin_path = self
             .exec
             .find_in_path(net.network._type.clone(), self.path.clone())?;
 
-        // Set up environment
+        // Setup environment
         let environ = ExecArgs {
             command: "ADD".to_string(),
             containerd_id: rt.container_id.clone(),
@@ -473,7 +475,7 @@ impl CNI for CNIConfig {
             Err(e) => return Err(Box::new(CNIError::Config(e))),
         };
 
-        // Cache the network config
+        // Cache network config
         if let Err(e) = self.cache_network_config(&name, &rt, &new_conf.bytes) {
             warn!("Failed to cache network config: {}", e);
         }
@@ -492,14 +494,56 @@ impl CNI for CNIConfig {
                 )))
             })?;
 
-        // Create result object
+        // Create result object - this is the key modification point
         let mut result = result100::Result::default();
-        if let Some(ips) = result_json.get("ips") {
-            // Parse IPs and other fields...
-            debug!("Network has IPs: {}", ips);
-        }
-
         result.cni_version = Some(cni_version);
+        
+        // Extract interface information from result
+        if let Some(interfaces) = result_json.get("interfaces") {
+            if let Some(interfaces_array) = interfaces.as_array() {
+                let interfaces_vec: Vec<result100::Interface> = interfaces_array
+                    .iter()
+                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                    .collect();
+                if !interfaces_vec.is_empty() {
+                    result.interfaces = Some(interfaces_vec);
+                }
+            }
+        }
+        
+        // Extract IP information from result
+        if let Some(ips) = result_json.get("ips") {
+            if let Some(ips_array) = ips.as_array() {
+                let ips_vec: Vec<result100::IPConfig> = ips_array
+                    .iter()
+                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                    .collect();
+                if !ips_vec.is_empty() {
+                    result.ips = Some(ips_vec);
+                    debug!("Network has IPs: {:?}", ips);
+                }
+            }
+        }
+        
+        // Extract route information from result
+        if let Some(routes) = result_json.get("routes") {
+            if let Some(routes_array) = routes.as_array() {
+                let routes_vec: Vec<super::types::Route> = routes_array
+                    .iter()
+                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                    .collect();
+                if !routes_vec.is_empty() {
+                    result.routes = Some(routes_vec);
+                }
+            }
+        }
+        
+        // Extract DNS information from result
+        if let Some(dns) = result_json.get("dns") {
+            if let Ok(dns_config) = serde_json::from_value::<super::types::DNS>(dns.clone()) {
+                result.dns = Some(dns_config);
+            }
+        }
 
         debug!("Successfully added network {}", name);
         Ok(Box::new(result))

@@ -299,7 +299,8 @@ impl Libcni {
             match net.attach(ns) {
                 Ok(_) => debug!("Attached network {} successfully", net.config.name),
                 Err(e) => {
-                    let err_msg = format!("Failed to attach network {}: {}", net.config.name, e);
+                    let err_msg = format!("Failed to attach network {} : {}", net.config.name, e);
+                    error!("{}", err_msg);
                     errors.push(err_msg);
                 }
             }

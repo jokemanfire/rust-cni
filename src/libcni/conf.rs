@@ -113,7 +113,6 @@ impl ConfigFile {
                 ncflist.bytes = datas.to_vec();
                 ncflist.disable_check = disable_check;
                 ncflist.plugins = all_plugins;
-
                 debug!("Successfully parsed NetworkConfigList: {}", ncflist.name);
                 Ok(ncflist)
             }
