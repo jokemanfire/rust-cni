@@ -19,9 +19,9 @@ pub struct NetworkConfig {
 // impl <T> NetworkConfig<T> {
 //     pub fn new(bytes: &[u8]) ->
 // }
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct NetConf {
-    #[serde(default)]
+    #[serde(default, alias = "cniVersion")]
     pub cni_version: String,
     #[serde(default)]
     pub name: String,

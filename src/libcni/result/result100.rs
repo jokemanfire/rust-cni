@@ -1,5 +1,5 @@
 // Copyright (c) 2024 https://github.com/divinerapier/cni-rs
-use std::io::stdout;
+use std::{clone, io::stdout};
 
 use json::JsonValue;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use super::APIResult;
 
 // const IMPLEMENTED_SPEC_VERSION: &'static str = "1.0.0";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Interface {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -21,7 +21,7 @@ pub struct Interface {
     pub sandbox: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IPConfig {
     #[serde(rename = "interface")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -34,7 +34,7 @@ pub struct IPConfig {
     pub gateway: Option<std::net::IpAddr>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 
 pub struct Result {
     #[serde(rename = "cniVersion")]
@@ -76,7 +76,17 @@ impl APIResult for Result {
 
     fn get_json(&self) -> JsonValue {
         let js_string = to_string(&self).unwrap();
-        // println!(" {:?}",js_String);
         json::parse(&js_string).unwrap()
+    }
+
+    fn clone_box(&self) -> Box<dyn APIResult> {
+        let cloned = Result {
+            cni_version: self.cni_version.clone(),
+            interfaces: self.interfaces.clone(),
+            ips: self.ips.clone(),
+            routes: self.routes.clone(),
+            dns: self.dns.clone(),
+        };
+        Box::new(cloned)
     }
 }

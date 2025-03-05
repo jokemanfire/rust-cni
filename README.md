@@ -1,12 +1,19 @@
-# This is the CNI plugin impl by rust for container create CNI network
+# rust-cni 
+This is the CNI plugin impl by rust for container-runtime create CNI network.
 
 
 
-## todo
-* Need Cached in CNI
-* Need Tests
-* Need Validate in CNI
-* Wrap as lib
+## requirements
+* Install cni plugin in /opt/cni/bin
+* Prepare cni config in /etc/cni/net.d
+
+## Test
+```
+## Run test
+should as root user
+```bash
+cargo test --test it_test --  --test-threads=1 --nocapture
+```
 
 ## example
 
@@ -24,7 +31,7 @@ fn create_ns() -> Result<NetNs, String> {
 
 fn main() {
     let ns = create_ns().unwrap();
-    let mut cni = Libcni::new();
+    let mut cni = Libcni::default();
     cni.load_default_conf();
     let _ = cni.add_lo_network();
 
@@ -41,9 +48,15 @@ fn main() {
 }
 
 
-```
+## License
+This project is licensed under the Apache License 2.0. See the LICENSE file for details.
 
-
-## ref
+## references
 * Containerd cni plugins （https://github.com/containerd/go-cni）
 * cni-rs (https://github.com/divinerapier/cni-rs)
+
+
+## Contributing
+Contributions are welcome! Please open an issue or submit a pull request if you have any improvements or bug fixes.
+
+For more detailed information, please refer to the source code and documentation.

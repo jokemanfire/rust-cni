@@ -1,14 +1,18 @@
 // Copyright (c) 2024 https://github.com/divinerapier/cni-rs
+use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 
 use super::CNIError;
 
-use super::exec::RawExec;
-use crate::libcni::exec::{Exec, ExecArgs};
+use super::exec::{Exec, ExecArgs, RawExec};
 use crate::libcni::result::result100;
 use crate::libcni::result::{APIResult, ResultCNI};
-use crate::libcni::types::NetworkConfig;
+use crate::libcni::types::{NetworkConfig, Route};
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+
 pub trait CNI {
     fn add_network_list(
         &self,
@@ -43,11 +47,11 @@ pub trait CNI {
         net: NetworkConfig,
         rt: RuntimeConf,
     ) -> ResultCNI<()>;
+
     fn delete_network(
         &self,
         name: String,
         cni_version: String,
-
         net: NetworkConfig,
         rt: RuntimeConf,
     ) -> ResultCNI<()>;
@@ -78,7 +82,22 @@ pub struct NetworkConfigList {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Default, Clone)]
+impl NetworkConfigList {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("Network name cannot be empty".to_string());
+        }
+        if self.cni_version.is_empty() {
+            return Err("CNI version cannot be empty".to_string());
+        }
+        if self.plugins.is_empty() {
+            return Err("At least one plugin is required".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct RuntimeConf {
     pub container_id: String,
     pub net_ns: String,
@@ -87,6 +106,19 @@ pub struct RuntimeConf {
     pub capability_args: HashMap<String, String>,
     pub cache_dir: String,
 }
+
+impl RuntimeConf {
+    pub fn get_cache_key(&self) -> String {
+        let id_part = if self.container_id.len() > 12 {
+            &self.container_id[..12]
+        } else {
+            &self.container_id
+        };
+
+        format!("{}-{}", id_part, self.if_name)
+    }
+}
+
 #[derive(Default)]
 pub struct CNIConfig {
     pub path: Vec<String>,
@@ -95,15 +127,104 @@ pub struct CNIConfig {
 }
 
 impl CNIConfig {
-    // fn cache_add(
-    //     &self,
-    //     type_result: Box<dyn APIResult>,
-    //     config: Vec<u8>,
-    //     netname: String,
-    //     rt: &RuntimeConf,
-    // ) -> Result<(), String> {
-    //     Ok(())
-    // }
+    fn get_cache_dir(&self, netname: &str) -> std::path::PathBuf {
+        let cache_dir = if self.cache_dir.is_empty() {
+            "/var/lib/cni/cache".to_string()
+        } else {
+            self.cache_dir.clone()
+        };
+
+        let path = Path::new(&cache_dir).join(netname);
+        if !path.exists() {
+            if let Err(e) = std::fs::create_dir_all(&path) {
+                warn!("Failed to create cache directory {}: {}", path.display(), e);
+            }
+        }
+        path
+    }
+
+    fn cache_network_config(
+        &self,
+        network_name: &str,
+        rt: &RuntimeConf,
+        config_bytes: &[u8],
+    ) -> ResultCNI<()> {
+        let cache_dir = self.get_cache_dir(network_name);
+        let key = rt.get_cache_key();
+        let config_path = cache_dir.join(format!("{}.config", key));
+
+        trace!("Caching network config to {}", config_path.display());
+
+        let mut file =
+            fs::File::create(config_path).map_err(|e| Box::new(CNIError::Io(Box::new(e))))?;
+
+        file.write_all(config_bytes)
+            .map_err(|e| Box::new(CNIError::Io(Box::new(e))))?;
+
+        Ok(())
+    }
+
+    fn cache_network_result(
+        &self,
+        network_name: &str,
+        rt: &RuntimeConf,
+        result: &Box<dyn APIResult>,
+    ) -> ResultCNI<()> {
+        let cache_dir = self.get_cache_dir(network_name);
+        let key = rt.get_cache_key();
+        let result_path = cache_dir.join(format!("{}.result", key));
+
+        trace!("Caching network result to {}", result_path.display());
+
+        let result_json = result.get_json();
+        let result_bytes = result_json.dump().as_bytes().to_vec();
+
+        let mut file =
+            fs::File::create(result_path).map_err(|e| Box::new(CNIError::Io(Box::new(e))))?;
+
+        file.write_all(&result_bytes)
+            .map_err(|e| Box::new(CNIError::Io(Box::new(e))))?;
+
+        Ok(())
+    }
+
+    fn read_cached_network(
+        &self,
+        netname: &str,
+        rt: &RuntimeConf,
+    ) -> Result<(Box<dyn APIResult>, Vec<u8>, RuntimeConf), String> {
+        trace!("Reading cached network {} config", netname);
+        let cache_dir = self.get_cache_dir(netname);
+        let key = rt.get_cache_key();
+        let result_path = cache_dir.join(format!("{}.result", key));
+        let config_path = cache_dir.join(format!("{}.config", key));
+
+        if !result_path.exists() || !config_path.exists() {
+            return Err("Cache files do not exist".to_string());
+        }
+
+        // Read files
+        let result_bytes = fs::read(&result_path).map_err(|e| e.to_string())?;
+        let config_bytes = fs::read(&config_path).map_err(|e| e.to_string())?;
+
+        // Parse result
+        let _: serde_json::Value = serde_json::from_slice(&result_bytes)
+            .map_err(|e| format!("Failed to parse result cache: {}", e))?;
+
+        // Create result object
+        let mut result = result100::Result::default();
+        result.cni_version = Some(
+            rt.args
+                .iter()
+                .find(|arg| arg[0] == "cniVersion")
+                .map(|arg| arg[1].clone())
+                .unwrap_or_else(|| "0.3.1".to_string()),
+        );
+
+        let result = Box::new(result) as Box<dyn APIResult>;
+
+        Ok((result, config_bytes, rt.clone()))
+    }
 
     fn build_new_config(
         &self,
@@ -113,22 +234,37 @@ impl CNIConfig {
         prev_result: Option<Box<dyn APIResult>>,
         _rt: &RuntimeConf,
     ) -> Result<NetworkConfig, String> {
-        let mut json_object = json::parse(String::from_utf8_lossy(&orig.bytes).as_ref()).unwrap();
+        debug!("Building new network config for {}", name);
 
-        json_object.insert("name", name).unwrap();
-        json_object.insert("cniVersion", cni_version).unwrap();
+        let mut json_object = match json::parse(String::from_utf8_lossy(&orig.bytes).as_ref()) {
+            Ok(obj) => obj,
+            Err(e) => return Err(format!("Failed to parse network config: {}", e)),
+        };
 
-        if let Some(prev_result) = prev_result {
-            json_object
-                .insert("prevResult", prev_result.get_json())
-                .unwrap();
+        // Insert required fields
+        if let Err(e) = json_object.insert("name", name) {
+            return Err(format!("Failed to insert name: {}", e));
         }
+
+        if let Err(e) = json_object.insert("cniVersion", cni_version) {
+            return Err(format!("Failed to insert cniVersion: {}", e));
+        }
+
+        // Insert previous result if provided
+        if let Some(prev_result) = prev_result {
+            if let Err(e) = json_object.insert("prevResult", prev_result.get_json()) {
+                return Err(format!("Failed to insert prevResult: {}", e));
+            }
+        }
+
         let new_bytes = json_object.dump().as_bytes().to_vec();
-        //need to update RutimeConfig
-        Ok(NetworkConfig {
-            network: serde_json::from_slice(&new_bytes).unwrap(),
-            bytes: new_bytes,
-        })
+        trace!("Built new config: {}", String::from_utf8_lossy(&new_bytes));
+
+        // Create new config with updated bytes
+        let mut new_conf = orig.clone();
+        new_conf.bytes = new_bytes;
+
+        Ok(new_conf)
     }
 }
 
@@ -138,52 +274,157 @@ impl CNI for CNIConfig {
         net: NetworkConfigList,
         rt: RuntimeConf,
     ) -> ResultCNI<Box<dyn APIResult>> {
-        let mut r = None;
+        info!("Adding network list: {}", net.name);
 
-        for x in net.plugins {
-            let r1 = self.add_network(
+        // Validate the plugin chain
+        self.validate_network_list(net.clone())?;
+
+        let mut prev_result: Option<Box<dyn APIResult>> = None;
+
+        // Apply each plugin in the chain
+        for (i, plugin) in net.plugins.iter().enumerate() {
+            debug!(
+                "Executing plugin {}/{}: {}",
+                i + 1,
+                net.plugins.len(),
+                plugin.network._type
+            );
+
+            // Add network with current plugin
+            let result = self.add_network(
                 net.name.clone(),
                 net.cni_version.clone(),
-                x.clone(),
-                r,
+                plugin.clone(),
+                prev_result,
                 rt.clone(),
             )?;
-            r = Some(r1);
-            //add r to cached
-            // self.cacheAdd();
+
+            // Update previous result for next plugin
+            prev_result = Some(result);
         }
-        match r {
-            Some(r) => Ok(r),
-            None => Err(Box::new(CNIError::ExecuteError("()".to_string()))),
+
+        // Cache the final result
+        if let Some(result) = &prev_result {
+            if let Err(e) = self.cache_network_result(&net.name, &rt, result) {
+                warn!("Failed to cache network result: {}", e);
+            }
         }
+
+        info!("Successfully added network list: {}", net.name);
+
+        // Return the final result
+        Ok(prev_result.unwrap_or_else(|| Box::new(result100::Result::default())))
     }
 
     fn check_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {
-        net.plugins.into_iter().try_for_each(|x| {
+        info!("Checking network list: {}", net.name);
+
+        // Skip check if disabled
+        if net.disable_check {
+            debug!("Network check is disabled for {}", net.name);
+            return Ok(());
+        }
+
+        // Get cached result from previous add operation
+        let (prev_result, _, _) = match self.read_cached_network(&net.name, &rt) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("No cached result found for network {}: {}", net.name, e);
+                (
+                    Box::new(result100::Result::default()) as Box<dyn APIResult>,
+                    Vec::new(),
+                    rt.clone(),
+                )
+            }
+        };
+
+        // Check each plugin in the chain
+        for (i, plugin) in net.plugins.iter().enumerate() {
+            debug!(
+                "Checking plugin {}/{}: {}",
+                i + 1,
+                net.plugins.len(),
+                plugin.network._type
+            );
+
+            // Check network with current plugin
             self.check_network(
                 net.name.clone(),
                 net.cni_version.clone(),
-                None,
-                x,
+                Some(prev_result.clone_box()),
+                plugin.clone(),
                 rt.clone(),
-            )
-        })?;
+            )?;
+        }
+
+        info!("Network list check passed: {}", net.name);
         Ok(())
     }
 
     fn delete_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {
-        net.plugins.into_iter().try_for_each(|x| {
-            self.delete_network(net.name.clone(), net.cni_version.clone(), x, rt.clone())
-        })?;
+        info!("Deleting network list: {}", net.name);
+
+        // Delete in reverse order
+        for (i, plugin) in net.plugins.iter().enumerate().rev() {
+            debug!(
+                "Deleting plugin {}/{}: {}",
+                net.plugins.len() - i,
+                net.plugins.len(),
+                plugin.network._type
+            );
+
+            // Delete network with current plugin
+            if let Err(e) = self.delete_network(
+                net.name.clone(),
+                net.cni_version.clone(),
+                plugin.clone(),
+                rt.clone(),
+            ) {
+                warn!("Error deleting plugin {}: {}", plugin.network._type, e);
+                // Continue with next plugin even if one fails
+            }
+        }
+
+        // Clean up cached data
+        let cache_dir = self.get_cache_dir(&net.name);
+        let key = rt.get_cache_key();
+        let result_path = cache_dir.join(format!("{}.result", key));
+        let config_path = cache_dir.join(format!("{}.config", key));
+
+        if result_path.exists() {
+            if let Err(e) = fs::remove_file(&result_path) {
+                warn!("Failed to remove cached result: {}", e);
+            }
+        }
+
+        if config_path.exists() {
+            if let Err(e) = fs::remove_file(&config_path) {
+                warn!("Failed to remove cached config: {}", e);
+            }
+        }
+
+        info!("Successfully deleted network list: {}", net.name);
         Ok(())
     }
 
     fn get_network_list_cached_result(
         &self,
-        _net: NetworkConfigList,
-        _rt: RuntimeConf,
+        net: NetworkConfigList,
+        rt: RuntimeConf,
     ) -> ResultCNI<Box<dyn APIResult>> {
-        todo!()
+        debug!("Getting cached result for network list: {}", net.name);
+
+        match self.read_cached_network(&net.name, &rt) {
+            Ok((result, _, _)) => {
+                debug!("Found cached result for network {}", net.name);
+                Ok(result)
+            }
+            Err(e) => {
+                let err_msg = format!("No cached result for network {}: {}", net.name, e);
+                error!("{}", err_msg);
+                Err(Box::new(CNIError::NotFound(net.name, err_msg)))
+            }
+        }
     }
 
     fn add_network(
@@ -194,37 +435,71 @@ impl CNI for CNIConfig {
         prev_result: Option<Box<dyn APIResult>>,
         rt: RuntimeConf,
     ) -> ResultCNI<Box<dyn APIResult>> {
-        //ensureexec todo!()
+        debug!("Adding network {} with plugin {}", name, net.network._type);
+
+        // Find plugin in path
         let plugin_path = self
             .exec
-            .find_in_path(net.network._type.clone(), self.path.clone())
-            .unwrap();
+            .find_in_path(net.network._type.clone(), self.path.clone())?;
 
+        // Set up environment
         let environ = ExecArgs {
             command: "ADD".to_string(),
             containerd_id: rt.container_id.clone(),
             netns: rt.net_ns.clone(),
             plugin_args: rt.args.clone(),
-            plugin_args_str: String::default(),
+            plugin_args_str: rt
+                .args
+                .iter()
+                .map(|arg| format!("{}={}", arg[0], arg[1]))
+                .collect::<Vec<_>>()
+                .join(";"),
             ifname: rt.if_name.clone(),
             path: self.path[0].clone(),
         };
 
-        let new_conf = self.build_new_config(name, cni_version, &net, prev_result, &rt);
-        if let Ok(new_conf) = new_conf {
-            let r_result =
-                self.exec
-                    .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
-            let pre_result_json: result100::Result = serde_json::from_slice(&r_result)
-                .map_err(|e| e.to_string())
-                .unwrap_or_else(|e| {
-                    println!("Failed to parse JSON: {}", e);
-                    result100::Result::default()
-                });
-            println!("cni_result {}", pre_result_json.get_json());
-            return Ok(Box::new(pre_result_json));
+        // Build new config with name, version and prevResult
+        let new_conf = match self.build_new_config(
+            name.clone(),
+            cni_version.clone(),
+            &net,
+            prev_result,
+            &rt,
+        ) {
+            Ok(conf) => conf,
+            Err(e) => return Err(Box::new(CNIError::Config(e))),
+        };
+
+        // Cache the network config
+        if let Err(e) = self.cache_network_config(&name, &rt, &new_conf.bytes) {
+            warn!("Failed to cache network config: {}", e);
         }
-        Err(Box::new(CNIError::ExecuteError("()".to_string())))
+
+        // Execute plugin
+        let result_bytes =
+            self.exec
+                .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
+
+        // Parse result
+        let result_json: serde_json::Value =
+            serde_json::from_slice(&result_bytes).map_err(|e| {
+                Box::new(CNIError::VarDecode(format!(
+                    "Failed to parse result: {}",
+                    e
+                )))
+            })?;
+
+        // Create result object
+        let mut result = result100::Result::default();
+        if let Some(ips) = result_json.get("ips") {
+            // Parse IPs and other fields...
+            debug!("Network has IPs: {}", ips);
+        }
+
+        result.cni_version = Some(cni_version);
+
+        debug!("Successfully added network {}", name);
+        Ok(Box::new(result))
     }
 
     fn check_network(
@@ -235,26 +510,47 @@ impl CNI for CNIConfig {
         net: NetworkConfig,
         rt: RuntimeConf,
     ) -> ResultCNI<()> {
+        debug!(
+            "Checking network {} with plugin {}",
+            name, net.network._type
+        );
+
+        // Find plugin in path
         let plugin_path = self
             .exec
-            .find_in_path(net.network._type.clone(), self.path.clone())
-            .unwrap();
+            .find_in_path(net.network._type.clone(), self.path.clone())?;
+
+        // Set up environment
         let environ = ExecArgs {
             command: "CHECK".to_string(),
             containerd_id: rt.container_id.clone(),
             netns: rt.net_ns.clone(),
             plugin_args: rt.args.clone(),
-            plugin_args_str: String::default(),
+            plugin_args_str: rt
+                .args
+                .iter()
+                .map(|arg| format!("{}={}", arg[0], arg[1]))
+                .collect::<Vec<_>>()
+                .join(";"),
             ifname: rt.if_name.clone(),
             path: self.path[0].clone(),
         };
-        let new_conf = self.build_new_config(name, cni_version, &net, prev_result, &rt);
-        if let Ok(new_conf) = new_conf {
-            self.exec
-                .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
-        }
+
+        // Build new config with name, version and prevResult
+        let new_conf =
+            match self.build_new_config(name.clone(), cni_version, &net, prev_result, &rt) {
+                Ok(conf) => conf,
+                Err(e) => return Err(Box::new(CNIError::Config(e))),
+            };
+
+        // Execute plugin
+        self.exec
+            .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
+
+        debug!("Network check passed for {}", name);
         Ok(())
     }
+
     fn delete_network(
         &self,
         name: String,
@@ -262,56 +558,174 @@ impl CNI for CNIConfig {
         net: NetworkConfig,
         rt: RuntimeConf,
     ) -> ResultCNI<()> {
+        debug!(
+            "Deleting network {} with plugin {}",
+            name, net.network._type
+        );
+
+        // Find plugin in path
+        let plugin_path = self
+            .exec
+            .find_in_path(net.network._type.clone(), self.path.clone())?;
+
+        // Set up environment
         let environ = ExecArgs {
             command: "DEL".to_string(),
-            containerd_id: rt.container_id,
-            netns: rt.net_ns,
-            plugin_args: rt.args,
-            plugin_args_str: String::default(),
-            ifname: rt.if_name,
+            containerd_id: rt.container_id.clone(),
+            netns: rt.net_ns.clone(),
+            plugin_args: rt.args.clone(),
+            plugin_args_str: rt
+                .args
+                .iter()
+                .map(|arg| format!("{}={}", arg[0], arg[1]))
+                .collect::<Vec<_>>()
+                .join(";"),
+            ifname: rt.if_name.clone(),
             path: self.path[0].clone(),
         };
 
-        let plugin_path = self
-            .exec
-            .find_in_path(net.network._type, self.path.clone())
-            .unwrap();
+        // Build new config with name and version
+        let new_conf = match self.build_new_config(name.clone(), cni_version, &net, None, &rt) {
+            Ok(conf) => conf,
+            Err(e) => return Err(Box::new(CNIError::Config(e))),
+        };
 
-        // add network name and version
-        let mut json_object = json::parse(String::from_utf8_lossy(&net.bytes).as_ref()).unwrap();
-        json_object.insert("name", name).unwrap();
-        json_object.insert("cniVersion", cni_version).unwrap();
-        let new_stdin_data = json_object.dump().as_bytes().to_vec();
-
+        // Execute plugin
         self.exec
-            .exec_plugins(plugin_path, &new_stdin_data, environ.to_env())?;
+            .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
 
+        debug!("Successfully deleted network {}", name);
         Ok(())
     }
 
     fn get_network_cached_result(
         &self,
-        _net: NetworkConfig,
-        _rt: RuntimeConf,
+        net: NetworkConfig,
+        rt: RuntimeConf,
     ) -> ResultCNI<Box<dyn APIResult>> {
-        // let net_name = net.network.name.clone();
+        debug!("Getting cached result for network {}", net.network.name);
 
-        todo!()
+        match self.read_cached_network(&net.network.name, &rt) {
+            Ok((result, _, _)) => {
+                debug!("Found cached result for network {}", net.network.name);
+                Ok(result)
+            }
+            Err(e) => {
+                let err_msg = format!("No cached result for network {}: {}", net.network.name, e);
+                error!("{}", err_msg);
+                Err(Box::new(CNIError::NotFound(net.network.name, err_msg)))
+            }
+        }
     }
 
     fn get_network_cached_config(
         &self,
-        _net: NetworkConfig,
-        _rt: RuntimeConf,
+        net: NetworkConfig,
+        rt: RuntimeConf,
     ) -> ResultCNI<(Vec<u8>, RuntimeConf)> {
-        todo!()
+        debug!("Getting cached config for network {}", net.network.name);
+
+        match self.read_cached_network(&net.network.name, &rt) {
+            Ok((_, config_bytes, cached_rt)) => {
+                debug!("Found cached config for network {}", net.network.name);
+                Ok((config_bytes, cached_rt))
+            }
+            Err(e) => {
+                let err_msg = format!("No cached config for network {}: {}", net.network.name, e);
+                error!("{}", err_msg);
+                Err(Box::new(CNIError::NotFound(net.network.name, err_msg)))
+            }
+        }
     }
 
-    fn validate_network_list(&self, _net: NetworkConfigList) -> ResultCNI<Vec<String>> {
-        todo!()
+    fn validate_network_list(&self, net: NetworkConfigList) -> ResultCNI<Vec<String>> {
+        debug!("Validating network list: {}", net.name);
+
+        // Check basic requirements
+        if let Err(e) = net.validate() {
+            return Err(Box::new(CNIError::Config(e)));
+        }
+
+        // Validate each plugin
+        let mut plugin_types = Vec::new();
+        for plugin in &net.plugins {
+            let types = self.validate_network(plugin.clone())?;
+            plugin_types.extend(types);
+        }
+
+        debug!("Network list validation passed for {}", net.name);
+        Ok(plugin_types)
     }
 
-    fn validate_network(&self, _net: NetworkConfig) -> ResultCNI<Vec<String>> {
-        todo!()
+    fn validate_network(&self, net: NetworkConfig) -> ResultCNI<Vec<String>> {
+        debug!("Validating network: {}", net.network.name);
+
+        // Check basic requirements
+        if net.network._type.is_empty() {
+            return Err(Box::new(CNIError::Config(
+                "Plugin type cannot be empty".to_string(),
+            )));
+        }
+
+        // Find plugin in path
+        let plugin_path = self
+            .exec
+            .find_in_path(net.network._type.clone(), self.path.clone())?;
+
+        // Set up environment for VERSION command
+        let environ = ExecArgs {
+            command: "VERSION".to_string(),
+            containerd_id: "".to_string(),
+            netns: "".to_string(),
+            plugin_args: Vec::new(),
+            plugin_args_str: "".to_string(),
+            ifname: "".to_string(),
+            path: self.path[0].clone(),
+        };
+
+        // Execute plugin with VERSION command
+        match self.exec.exec_plugins(plugin_path, &[], environ.to_env()) {
+            Ok(version_bytes) => {
+                // Parse version info
+                match serde_json::from_slice::<serde_json::Value>(&version_bytes) {
+                    Ok(version_info) => {
+                        if let Some(supported_versions) = version_info.get("supportedVersions") {
+                            if let Some(versions_array) = supported_versions.as_array() {
+                                let versions: Vec<String> = versions_array
+                                    .iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect();
+
+                                debug!(
+                                    "Plugin {} supports versions: {:?}",
+                                    net.network._type, versions
+                                );
+                                return Ok(versions);
+                            }
+                        }
+
+                        warn!(
+                            "Plugin {} did not return supported versions",
+                            net.network._type
+                        );
+                        Ok(vec![])
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse version info from plugin {}: {}",
+                            net.network._type, e
+                        );
+                        Ok(vec![])
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to get version info from plugin {}: {}",
+                    net.network._type, e
+                );
+                Ok(vec![])
+            }
+        }
     }
 }

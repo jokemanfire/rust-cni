@@ -12,4 +12,5 @@ pub trait APIResult {
     fn print(&self) -> ResultCNI<()>;
     fn print_to(&self, w: Box<dyn std::io::Write>) -> ResultCNI<()>;
     fn get_json(&self) -> JsonValue;
+    fn clone_box(&self) -> Box<dyn APIResult>;
 }
