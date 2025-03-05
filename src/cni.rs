@@ -2,7 +2,6 @@ use libcni::{
     api::{CNIConfig, CNI},
     exec::RawExec,
     types::Config,
-    CNIError,
 };
 use log::{debug, error, info, trace, warn};
 use std::sync::Arc;

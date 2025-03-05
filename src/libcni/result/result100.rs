@@ -1,5 +1,5 @@
 // Copyright (c) 2024 https://github.com/divinerapier/cni-rs
-use std::{clone, io::stdout};
+use std::io::stdout;
 
 use json::JsonValue;
 use serde::{Deserialize, Serialize};

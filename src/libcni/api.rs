@@ -7,7 +7,7 @@ use super::CNIError;
 use super::exec::{Exec, ExecArgs, RawExec};
 use crate::libcni::result::result100;
 use crate::libcni::result::{APIResult, ResultCNI};
-use crate::libcni::types::{NetworkConfig, Route};
+use crate::libcni::types::NetworkConfig;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -168,7 +168,7 @@ impl CNIConfig {
         &self,
         network_name: &str,
         rt: &RuntimeConf,
-        result: &Box<dyn APIResult>,
+        result: &dyn APIResult,
     ) -> ResultCNI<()> {
         let cache_dir = self.get_cache_dir(network_name);
         let key = rt.get_cache_key();
@@ -188,6 +188,7 @@ impl CNIConfig {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     fn read_cached_network(
         &self,
         netname: &str,
@@ -212,14 +213,16 @@ impl CNIConfig {
             .map_err(|e| format!("Failed to parse result cache: {}", e))?;
 
         // Create result object
-        let mut result = result100::Result::default();
-        result.cni_version = Some(
-            rt.args
-                .iter()
-                .find(|arg| arg[0] == "cniVersion")
-                .map(|arg| arg[1].clone())
-                .unwrap_or_else(|| "0.3.1".to_string()),
-        );
+        let result = result100::Result {
+            cni_version: Some(
+                rt.args
+                    .iter()
+                    .find(|arg| arg[0] == "cniVersion")
+                    .map(|arg| arg[1].clone())
+                    .unwrap_or_else(|| "0.3.1".to_string()),
+            ),
+            ..Default::default()
+        };
 
         let result = Box::new(result) as Box<dyn APIResult>;
 
@@ -305,7 +308,7 @@ impl CNI for CNIConfig {
 
         // Cache the final result
         if let Some(result) = &prev_result {
-            if let Err(e) = self.cache_network_result(&net.name, &rt, result) {
+            if let Err(e) = self.cache_network_result(&net.name, &rt, result.as_ref()) {
                 warn!("Failed to cache network result: {}", e);
             }
         }

@@ -3,7 +3,7 @@ name = "rust-cni"
 version = "0.1.0"
 edition = "2021"
 authors = ["jokemanfire <hu.dingyang@zte.com.cn>"]
-description = "a simple cni library implement by rust" 
+description = "a simple cni interface implement by rust" 
 keywords = ["network", "cni"]
 repository = "https://github.com/jokemanfire/rust-cni"
 license = "Apache-2.0"
@@ -21,4 +21,4 @@ typetag = "0.1.5"
 json= "0.12.4"
 log = {version = "0.4.2", features=["kv_unstable"]}
 env_logger = "0.11.6"
-uuid = "1.0"
+uuid = {version = "1.0", features = ["v4"]} 

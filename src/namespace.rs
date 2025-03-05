@@ -31,9 +31,7 @@ impl Network {
                 trace!("Network attachment result: {:?}", result.get_json());
                 Ok(())
             }
-            Err(e) => {
-                Err(e.to_string())
-            }
+            Err(e) => Err(e.to_string()),
         }
     }
 

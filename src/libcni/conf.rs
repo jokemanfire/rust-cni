@@ -9,7 +9,6 @@ use std::{
 use super::{
     api::NetworkConfigList,
     types::{NetConf, NetworkConfig},
-    CNIError,
 };
 
 pub struct ConfigFile {}

@@ -1,5 +1,5 @@
 // Copyright (c) 2024 https://github.com/divinerapier/cni-rs
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, trace, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::libcni::result::ResultCNI;
@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::{collections::HashMap, io::Write};
 
-#[derive(Default, Serialize, Deserialize,Debug)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 pub struct ExecArgs {
     pub(crate) command: String,
     pub(crate) containerd_id: String,
@@ -83,11 +83,10 @@ impl Exec for RawExec {
                 }
             })
             .collect();
-
+        // debug!("CNI environment variables: {:?}", envs);
         // Check if plugin exists
         if !Path::new(&plugin_path).exists() {
             let err_msg = format!("CNI plugin not found: {}", plugin_path);
-            error!("{}", err_msg);
             return Err(Box::new(CNIError::ExecuteError(err_msg)));
         }
 
@@ -102,16 +101,14 @@ impl Exec for RawExec {
             Ok(cmd) => cmd,
             Err(e) => {
                 let err_msg = format!("Failed to start CNI plugin {}: {}", plugin_path, e);
-                error!("{}", err_msg);
                 return Err(Box::new(CNIError::ExecuteError(err_msg)));
             }
         };
-
+        debug!("cni stdin is: {:?}", String::from_utf8_lossy(stdin_data));
         // Write stdin data
         if let Some(mut stdin) = plugin_cmd.stdin.take() {
             if let Err(e) = stdin.write_all(stdin_data) {
                 let err_msg = format!("Failed to write to plugin stdin: {}", e);
-                error!("{}", err_msg);
                 return Err(Box::new(CNIError::ExecuteError(err_msg)));
             }
             // Close stdin to signal end of input
@@ -123,7 +120,6 @@ impl Exec for RawExec {
             Ok(output) => output,
             Err(e) => {
                 let err_msg = format!("Failed to get plugin output: {}", e);
-                error!("{}", err_msg);
                 return Err(Box::new(CNIError::ExecuteError(err_msg)));
             }
         };
