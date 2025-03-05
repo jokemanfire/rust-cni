@@ -1,4 +1,7 @@
 # rust-cni 
+[![CI](https://github.com/jokemanfire/rust-cni/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jokemanfire/rust-cni/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/l/containerd-client)](https://github.com/jokemanfire/rust-cni/blob/main/LICENSE)
+
 This is the CNI plugin impl by rust for container-runtime create CNI network.
 
 
