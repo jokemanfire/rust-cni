@@ -1,6 +1,6 @@
 [package]
 name = "rust-cni"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["jokemanfire <hu.dingyang@zte.com.cn>"]
 description = "a simple cni interface implement by rust" 
