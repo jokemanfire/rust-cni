@@ -318,7 +318,7 @@ impl CNI for CNIConfig {
         info!("Successfully added network list: {}", net.name);
 
         // Return the final result
-        Ok(prev_result.unwrap_or_else(|| Box::new(result100::Result::default())))
+        Ok(prev_result.unwrap_or_else(|| Box::<result100::Result>::default()))
     }
 
     fn check_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {
@@ -336,7 +336,7 @@ impl CNI for CNIConfig {
             Err(e) => {
                 warn!("No cached result found for network {}: {}", net.name, e);
                 (
-                    Box::new(result100::Result::default()) as Box<dyn APIResult>,
+                    Box::<result100::Result>::default() as Box<dyn APIResult>,
                     Vec::new(),
                     rt.clone(),
                 )
@@ -485,64 +485,25 @@ impl CNI for CNIConfig {
             self.exec
                 .exec_plugins(plugin_path, &new_conf.bytes, environ.to_env())?;
 
-        // Parse result
-        let result_json: serde_json::Value =
-            serde_json::from_slice(&result_bytes).map_err(|e| {
-                Box::new(CNIError::VarDecode(format!(
-                    "Failed to parse result: {}",
+        // Directly deserialize the result JSON into the result structure
+        let mut result: result100::Result = match serde_json::from_slice(&result_bytes) {
+            Ok(r) => r,
+            Err(e) => {
+                // If direct deserialization fails, create a default result with minimal information
+                debug!(
+                    "Failed to directly deserialize result: {}, creating minimal result",
                     e
-                )))
-            })?;
+                );
+                result100::Result {
+                    cni_version: Some(cni_version.clone()),
+                    ..Default::default()
+                }
+            }
+        };
 
-        // Create result object - this is the key modification point
-        let mut result = result100::Result::default();
-        result.cni_version = Some(cni_version);
-        
-        // Extract interface information from result
-        if let Some(interfaces) = result_json.get("interfaces") {
-            if let Some(interfaces_array) = interfaces.as_array() {
-                let interfaces_vec: Vec<result100::Interface> = interfaces_array
-                    .iter()
-                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
-                    .collect();
-                if !interfaces_vec.is_empty() {
-                    result.interfaces = Some(interfaces_vec);
-                }
-            }
-        }
-        
-        // Extract IP information from result
-        if let Some(ips) = result_json.get("ips") {
-            if let Some(ips_array) = ips.as_array() {
-                let ips_vec: Vec<result100::IPConfig> = ips_array
-                    .iter()
-                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
-                    .collect();
-                if !ips_vec.is_empty() {
-                    result.ips = Some(ips_vec);
-                    debug!("Network has IPs: {:?}", ips);
-                }
-            }
-        }
-        
-        // Extract route information from result
-        if let Some(routes) = result_json.get("routes") {
-            if let Some(routes_array) = routes.as_array() {
-                let routes_vec: Vec<super::types::Route> = routes_array
-                    .iter()
-                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
-                    .collect();
-                if !routes_vec.is_empty() {
-                    result.routes = Some(routes_vec);
-                }
-            }
-        }
-        
-        // Extract DNS information from result
-        if let Some(dns) = result_json.get("dns") {
-            if let Ok(dns_config) = serde_json::from_value::<super::types::DNS>(dns.clone()) {
-                result.dns = Some(dns_config);
-            }
+        // Ensure CNI version is set
+        if result.cni_version.is_none() {
+            result.cni_version = Some(cni_version);
         }
 
         debug!("Successfully added network {}", name);

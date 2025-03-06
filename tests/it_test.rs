@@ -387,7 +387,7 @@ fn test_custom_network_config_with_plugins() {
         }
     };
 
-    // create network namespace 
+    // create network namespace
     let ns_name = format!("cni-test-{}", uuid::Uuid::new_v4());
     let ns_path = match create_netns(&ns_name) {
         Ok(path) => path,

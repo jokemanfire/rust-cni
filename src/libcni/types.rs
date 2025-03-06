@@ -10,7 +10,7 @@ pub struct Config {
     pub plugin_max_conf_num: i64,
     pub prefix: String,
 }
-#[derive(Default, Clone, Serialize, Deserialize,Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct NetworkConfig {
     pub network: NetConf,
     pub bytes: Vec<u8>,
