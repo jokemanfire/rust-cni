@@ -64,10 +64,14 @@ impl Libcni {
                 }
 
                 let mut networks = Vec::new();
-                let mut cnt = 1;
+                let mut cnt = 0;
 
                 for configfile in config_files {
                     debug!("Processing CNI config file: {}", configfile);
+                    // Do not load more than plugin_max_conf_num
+                    if cnt >= self.config.plugin_max_conf_num {
+                        break;
+                    }
                     if configfile.ends_with(".conflist") {
                         match libcni::conf::ConfigFile::read_configlist_file(configfile.clone()) {
                             Some(config) => {
@@ -100,7 +104,7 @@ impl Libcni {
                 }
 
                 self.networks = networks;
-                self.network_count = cnt - 1;
+                self.network_count = cnt;
                 info!("Loaded {} CNI networks", self.network_count);
             }
             Err(e) => {

@@ -2,9 +2,9 @@ use env_logger::Env;
 use log::{debug, error, info, warn, LevelFilter};
 use once_cell::sync::OnceCell;
 use rust_cni::{cni::Libcni, namespace::Namespace};
+use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::{fs, time};
 
 fn init_logger() {
     static LOGGER: OnceCell<()> = OnceCell::new();
@@ -26,8 +26,8 @@ const TEST_NETWORK_CONF: &str = r#"{
     "ipMasq": true,
     "ipam": {
         "type": "host-local",
-        "subnet": "10.88.0.0/16",
-        "gateway": "10.88.0.1"
+        "subnet": "192.168.2.0/24",
+        "gateway": "192.168.2.1"
     }
 }"#;
 
