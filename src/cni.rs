@@ -3,7 +3,7 @@ use libcni::{
     exec::RawExec,
     types::Config,
 };
-use log::{debug, error, info, trace, warn};
+use log::{debug, error};
 use std::sync::Arc;
 
 use crate::{
@@ -56,7 +56,7 @@ impl Libcni {
         ) {
             Ok(config_files) => {
                 if config_files.is_empty() {
-                    warn!(
+                    error!(
                         "No CNI configuration files found in {}",
                         self.config.plugin_conf_dir
                     );
@@ -75,7 +75,7 @@ impl Libcni {
                     if configfile.ends_with(".conflist") {
                         match libcni::conf::ConfigFile::read_configlist_file(configfile.clone()) {
                             Some(config) => {
-                                info!("Loaded CNI network config: {}", config.name);
+                                debug!("Loaded CNI network config: {}", config.name);
                                 networks.push(Network {
                                     cni: self.cni_interface.clone(),
                                     config,
@@ -87,7 +87,7 @@ impl Libcni {
                     } else if configfile.ends_with(".conf") || configfile.ends_with(".json") {
                         match libcni::conf::ConfigFile::read_config_file(configfile.clone()) {
                             Some(config) => {
-                                info!("Loaded CNI single config: {}", config.network.name);
+                                debug!("Loaded CNI single config: {}", config.network.name);
                                 // Convert single config to config list
                                 let config_list =
                                     libcni::conf::ConfigFile::convert_to_config_list(config);
@@ -105,7 +105,7 @@ impl Libcni {
 
                 self.networks = networks;
                 self.network_count = cnt;
-                info!("Loaded {} CNI networks", self.network_count);
+                debug!("Loaded {} CNI networks", self.network_count);
             }
             Err(e) => {
                 error!("Failed to read CNI config files: {}", e);
@@ -178,7 +178,7 @@ impl Libcni {
 
         match libcni::conf::ConfigFile::config_from_bytes(datas.as_bytes()) {
             Ok(loconfig) => {
-                info!("Loopback network configuration added");
+                debug!("Loopback network configuration added");
                 self.networks.push(Network {
                     cni: self.cni_interface.clone(),
                     config: loconfig,
@@ -194,7 +194,7 @@ impl Libcni {
     }
 
     pub fn status(&self) -> Result<(), String> {
-        trace!(
+        debug!(
             "Checking CNI status, networks count: {}",
             self.networks.len()
         );
@@ -214,7 +214,7 @@ impl Libcni {
     }
 
     pub fn setup(&self, id: String, path: String) -> Result<(), String> {
-        info!("Setting up networks for container: {}", id);
+        debug!("Setting up networks for container: {}", id);
 
         // Check status
         self.status()?;
@@ -225,12 +225,12 @@ impl Libcni {
         // Attach networks
         self.attach_networks(&namespace)?;
 
-        info!("Networks setup completed for container: {}", id);
+        debug!("Networks setup completed for container: {}", id);
         Ok(())
     }
 
     pub fn remove(&self, id: String, path: String) -> Result<(), String> {
-        info!("Removing networks for container: {}", id);
+        debug!("Removing networks for container: {}", id);
 
         // Check status
         self.status()?;
@@ -257,12 +257,12 @@ impl Libcni {
             return Err(errors.join("; "));
         }
 
-        info!("Networks removal completed for container: {}", id);
+        debug!("Networks removal completed for container: {}", id);
         Ok(())
     }
 
     pub fn check(&self, id: String, path: String) -> Result<(), String> {
-        info!("Checking networks for container: {}", id);
+        debug!("Checking networks for container: {}", id);
 
         // Check status
         self.status()?;
@@ -291,7 +291,7 @@ impl Libcni {
         if !errors.is_empty() {
             return Err(errors.join("; "));
         }
-        info!("Networks check completed for container: {}", id);
+        debug!("Networks check completed for container: {}", id);
         Ok(())
     }
 

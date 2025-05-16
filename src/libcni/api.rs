@@ -1,5 +1,5 @@
 // Copyright (c) 2024 https://github.com/divinerapier/cni-rs
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 
 use super::CNIError;
@@ -153,7 +153,7 @@ impl CNIConfig {
         let key = rt.get_cache_key();
         let config_path = cache_dir.join(format!("{}.config", key));
 
-        trace!("Caching network config to {}", config_path.display());
+        debug!("Caching network config to {}", config_path.display());
 
         let mut file =
             fs::File::create(config_path).map_err(|e| Box::new(CNIError::Io(Box::new(e))))?;
@@ -174,7 +174,7 @@ impl CNIConfig {
         let key = rt.get_cache_key();
         let result_path = cache_dir.join(format!("{}.result", key));
 
-        trace!("Caching network result to {}", result_path.display());
+        debug!("Caching network result to {}", result_path.display());
 
         let result_json = result.get_json();
         let result_bytes = result_json.dump().as_bytes().to_vec();
@@ -194,7 +194,7 @@ impl CNIConfig {
         netname: &str,
         rt: &RuntimeConf,
     ) -> Result<(Box<dyn APIResult>, Vec<u8>, RuntimeConf), String> {
-        trace!("Reading cached network {} config", netname);
+        debug!("Reading cached network {} config", netname);
         let cache_dir = self.get_cache_dir(netname);
         let key = rt.get_cache_key();
         let result_path = cache_dir.join(format!("{}.result", key));
@@ -263,7 +263,7 @@ impl CNIConfig {
         }
 
         let new_bytes = json_object.dump().as_bytes().to_vec();
-        trace!("Built new config: {}", String::from_utf8_lossy(&new_bytes));
+        debug!("Built new config: {}", String::from_utf8_lossy(&new_bytes));
 
         // Create new config with updated bytes
         let mut new_conf = orig.clone();
@@ -315,14 +315,14 @@ impl CNI for CNIConfig {
             }
         }
 
-        info!("Successfully added network list: {}", net.name);
+        debug!("Successfully added network list: {}", net.name);
 
         // Return the final result
         Ok(prev_result.unwrap_or_else(|| Box::<result100::Result>::default()))
     }
 
     fn check_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {
-        info!("Checking network list: {}", net.name);
+        debug!("Checking network list: {}", net.name);
 
         // Skip check if disabled
         if net.disable_check {
@@ -362,12 +362,12 @@ impl CNI for CNIConfig {
             )?;
         }
 
-        info!("Network list check passed: {}", net.name);
+        debug!("Network list check passed: {}", net.name);
         Ok(())
     }
 
     fn delete_network_list(&self, net: NetworkConfigList, rt: RuntimeConf) -> ResultCNI<()> {
-        info!("Deleting network list: {}", net.name);
+        debug!("Deleting network list: {}", net.name);
 
         // Delete in reverse order
         for (i, plugin) in net.plugins.iter().enumerate().rev() {
@@ -385,7 +385,7 @@ impl CNI for CNIConfig {
                 plugin.clone(),
                 rt.clone(),
             ) {
-                warn!("Error deleting plugin {}: {}", plugin.network._type, e);
+                error!("Error deleting plugin {}: {}", plugin.network._type, e);
                 // Continue with next plugin even if one fails
             }
         }
@@ -397,18 +397,20 @@ impl CNI for CNIConfig {
         let config_path = cache_dir.join(format!("{}.config", key));
 
         if result_path.exists() {
+            debug!("Removing cached result: {}", result_path.display());
             if let Err(e) = fs::remove_file(&result_path) {
                 warn!("Failed to remove cached result: {}", e);
             }
         }
 
         if config_path.exists() {
+            debug!("Removing cached config: {}", config_path.display());
             if let Err(e) = fs::remove_file(&config_path) {
                 warn!("Failed to remove cached config: {}", e);
             }
         }
 
-        info!("Successfully deleted network list: {}", net.name);
+        debug!("Successfully deleted network list: {}", net.name);
         Ok(())
     }
 

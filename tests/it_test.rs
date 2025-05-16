@@ -1,4 +1,3 @@
-use env_logger::Env;
 use log::{debug, error, info, warn, LevelFilter};
 use once_cell::sync::OnceCell;
 use rust_cni::{cni::Libcni, namespace::Namespace};
@@ -33,7 +32,7 @@ const TEST_NETWORK_CONF: &str = r#"{
 
 const TEST_NETWORK_CONF_2: &str = r#"{
   "cniVersion": "0.4.0",
-  "name": "containerd-net",
+  "name": "test-network2",
   "plugins": [
     {
       "type": "bridge",
@@ -357,7 +356,7 @@ fn test_custom_network_config() {
 
     // cleanup
     match cni.remove(container_id, ns_path) {
-        Ok(_) => info!("Network cleanup successful"),
+        Ok(_) => debug!("Network cleanup successful"),
         Err(e) => warn!("Network cleanup failed: {}", e),
     }
 
@@ -369,7 +368,85 @@ fn test_custom_network_config() {
         warn!("Failed to cleanup test environment: {}", e);
     }
 
-    info!("Custom network config test completed successfully");
+    debug!("Custom network config test completed successfully");
+}
+
+// test: cached is removed
+#[test]
+fn test_cni_files_is_removed() {
+    init_logger();
+
+    info!("Starting cached is removed test");
+
+    let test_dir = match setup_test_environment(TEST_NETWORK_CONF) {
+        Ok(dir) => dir,
+        Err(e) => {
+            error!("Failed to setup test environment: {}", e);
+            panic!("Test setup failed");
+        }
+    };
+
+    let ns_name = format!("cni-test-{}", uuid::Uuid::new_v4());
+    let ns_path = match create_netns(&ns_name) {
+        Ok(path) => path,
+        Err(e) => {
+            error!("Failed to create network namespace: {}", e);
+            cleanup_test_environment(&test_dir).unwrap_or_default();
+            panic!("Failed to create netns");
+        }
+    };
+
+    let mut cni = Libcni::new(
+        Some(vec!["/opt/cni/bin".to_string()]),
+        Some(test_dir.clone()),
+        Some("/tmp/cni-cache".to_string()),
+    );
+
+    cni.load_default_conf();
+
+    let container_id = format!("cached-container-{}", uuid::Uuid::new_v4());
+
+    // setup network
+    match cni.setup(container_id.clone(), ns_path.clone()) {
+        Ok(_) => info!("Network setup successful"),
+        Err(e) => {
+            error!("Network setup failed: {}", e);
+            delete_netns(&ns_name).unwrap_or_default();
+            cleanup_test_environment(&test_dir).unwrap_or_default();
+            panic!("Network setup failed");
+        }
+    }
+
+    // cleanup
+    match cni.remove(container_id, ns_path) {
+        Ok(_) => debug!("Network cleanup successful"),
+        Err(e) => warn!("Network cleanup failed: {}", e),
+    }
+
+    // check if cache is removed
+    let cache_dir = Path::new("/tmp/cni-cache");
+
+    // check if cni config files are removed
+    let cni_config_files = cache_dir
+        .read_dir()
+        .unwrap()
+        .filter_map(|entry| {
+            if let Ok(entry) = entry {
+                if entry.path().is_file() {
+                    Some(entry.path())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        cni_config_files.is_empty(),
+        "CNI config files should be removed"
+    );
 }
 
 // test: custom network config with multiple plugins
@@ -432,7 +509,7 @@ fn test_custom_network_config_with_plugins() {
 
     // cleanup network
     match cni.remove(container_id, ns_path) {
-        Ok(_) => info!("Network cleanup successful"),
+        Ok(_) => debug!("Network cleanup successful"),
         Err(e) => warn!("Network cleanup failed: {}", e),
     }
 

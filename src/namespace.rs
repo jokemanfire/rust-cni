@@ -1,4 +1,4 @@
-use log::{debug, error, info, trace};
+use log::{debug, error, trace};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::libcni::{
@@ -24,7 +24,7 @@ impl Network {
             .add_network_list(self.config.clone(), ns.config(self.ifname.clone()))
         {
             Ok(result) => {
-                info!(
+                debug!(
                     "Successfully attached network {} to namespace",
                     self.config.name
                 );
@@ -46,7 +46,7 @@ impl Network {
             .delete_network_list(self.config.clone(), ns.config(self.ifname.clone()))
         {
             Ok(_) => {
-                info!(
+                debug!(
                     "Successfully removed network {} from namespace",
                     self.config.name
                 );
@@ -94,7 +94,7 @@ impl Network {
         {
             Ok(result) => {
                 let stats_json = result.get_json().dump();
-                trace!("Network stats: {}", stats_json);
+                debug!("Network stats: {}", stats_json);
                 Ok(stats_json)
             }
             Err(e) => {
@@ -155,7 +155,7 @@ impl Namespace {
     }
 
     pub fn config(&self, ifname: String) -> libcni::api::RuntimeConf {
-        trace!(
+        debug!(
             "Creating runtime config for namespace with interface {}",
             ifname
         );
